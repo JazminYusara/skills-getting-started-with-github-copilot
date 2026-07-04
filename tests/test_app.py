@@ -1,34 +1,57 @@
+import copy
+
+import pytest
 from fastapi.testclient import TestClient
 
-from src.app import app
+from src import app as app_module
 
 
-client = TestClient(app)
+@pytest.fixture
+def client():
+    with TestClient(app_module.app) as test_client:
+        yield test_client
 
 
-def test_signup_updates_activity_participants_immediately():
+@pytest.fixture(autouse=True)
+def reset_activity_state():
+    original_state = copy.deepcopy(app_module.activities)
+    app_module.activities.clear()
+    app_module.activities.update(copy.deepcopy(original_state))
+
+    yield
+
+    app_module.activities.clear()
+    app_module.activities.update(copy.deepcopy(original_state))
+
+
+def test_signup_updates_activity_participants_immediately(client):
+    # Arrange
+    activity_name = "Chess Club"
+    email = "newstudent@mergington.edu"
+
+    # Act
     response = client.post(
-        "/activities/Chess Club/signup",
-        params={"email": "newstudent@mergington.edu"},
+        f"/activities/{activity_name}/signup",
+        params={"email": email},
     )
 
+    # Assert
     assert response.status_code == 200
     activities = client.get("/activities").json()
-    assert "newstudent@mergington.edu" in activities["Chess Club"]["participants"]
-
-    client.delete("/activities/Chess Club/participants/newstudent@mergington.edu")
+    assert email in activities[activity_name]["participants"]
 
 
-def test_unregister_participant_removes_email_from_activity():
-    response = client.delete("/activities/Chess Club/participants/michael@mergington.edu")
+def test_unregister_participant_removes_email_from_activity(client):
+    # Arrange
+    activity_name = "Chess Club"
+    email = "michael@mergington.edu"
 
+    # Act
+    response = client.delete(f"/activities/{activity_name}/participants/{email}")
+
+    # Assert
     assert response.status_code == 200
-    assert response.json()["message"] == "Unregistered michael@mergington.edu from Chess Club"
+    assert response.json()["message"] == f"Unregistered {email} from {activity_name}"
 
     activities = client.get("/activities").json()
-    assert "michael@mergington.edu" not in activities["Chess Club"]["participants"]
-
-    client.post(
-        "/activities/Chess Club/signup",
-        params={"email": "michael@mergington.edu"},
-    )
+    assert email not in activities[activity_name]["participants"]
